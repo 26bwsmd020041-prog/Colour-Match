@@ -116,9 +116,9 @@ body {
 /* Game Board */
 .game-board {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+    grid-template-columns: repeat(2, 1fr);
     gap: 12px;
-    aspect-ratio: 1;
+    min-height: 250px;
     padding: 10px;
     background: rgba(0, 0, 0, 0.2);
     border-radius: 16px;
@@ -146,11 +146,12 @@ body {
 }
 
 .tile.correct {
-    animation: correctMatch 0.5s ease-out;
+    animation: correctMatch 0.5s ease-out forwards;
+    pointer-events: none;
 }
 
 .tile.wrong {
-    animation: wrongMatch 0.5s ease-out;
+    animation: wrongMatch 0.5s ease-out forwards;
 }
 
 @keyframes correctMatch {
@@ -430,8 +431,9 @@ body {
     }
 
     .game-board {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(2, 1fr);
         gap: 10px;
+        min-height: 200px;
     }
 
     .tile {
@@ -456,9 +458,10 @@ body {
 
 @media (max-width: 400px) {
     .game-board {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(2, 1fr);
         gap: 8px;
         padding: 8px;
+        min-height: 180px;
     }
 
     .header {

@@ -65,8 +65,8 @@ function startGame() {
     pauseBtn.classList.remove('hidden');
 
     // Generate tiles and target color
-    generateTiles();
     generateTargetColor();
+    generateTiles();
 
     // Start timer
     startTimer();
@@ -90,11 +90,17 @@ function generateTiles() {
         if (i === matchIndex) {
             color = gameState.targetColor;
         } else {
-            color = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+            // Ensure non-matching colors
+            let newColor;
+            do {
+                newColor = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+            } while (newColor === gameState.targetColor);
+            color = newColor;
         }
 
         gameState.colors.push(color);
         tile.style.backgroundColor = color;
+        tile.dataset.index = i;
         tile.addEventListener('click', () => handleTileClick(i));
         tile.addEventListener('touchend', (e) => {
             e.preventDefault();
@@ -139,8 +145,8 @@ function handleTileClick(index) {
 
         // Generate new tiles and target
         setTimeout(() => {
-            generateTiles();
             generateTargetColor();
+            generateTiles();
         }, 300);
     } else {
         // Wrong match

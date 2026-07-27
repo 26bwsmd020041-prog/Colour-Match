@@ -14,12 +14,12 @@ const gameState = {
     timerInterval: null,
 };
 
-// Color palette
+// Color palette - UNIQUE colors only
 const colorPalette = [
     '#FF006E', '#FB5607', '#FFBE0B', '#8338EC', '#3A86FF',
-    '#06FFA5', '#FF4365', '#00F5FF', '#FF006E', '#00D9FF',
-    '#FFD60A', '#FCA311', '#FF006E', '#118AB2', '#073B4C',
-    '#EF476F', '#FFD166', '#06D6A0', '#118AB2', '#073B4C',
+    '#06FFA5', '#FF4365', '#00F5FF', '#00D9FF',
+    '#FFD60A', '#FCA311', '#118AB2', '#073B4C',
+    '#EF476F', '#FFD166', '#06D6A0'
 ];
 
 // DOM Elements
@@ -90,12 +90,9 @@ function generateTiles() {
         if (i === matchIndex) {
             color = gameState.targetColor;
         } else {
-            // Ensure non-matching colors
-            let newColor;
-            do {
-                newColor = colorPalette[Math.floor(Math.random() * colorPalette.length)];
-            } while (newColor === gameState.targetColor);
-            color = newColor;
+            // Ensure non-matching colors - get available colors
+            const availableColors = colorPalette.filter(c => c !== gameState.targetColor);
+            color = availableColors[Math.floor(Math.random() * availableColors.length)];
         }
 
         gameState.colors.push(color);

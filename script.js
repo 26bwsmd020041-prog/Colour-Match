@@ -1,4 +1,4 @@
-// script.js - Colour Match game
+// script.js - Colour Match game (tweaked colour generation)
 (() => {
   // DOM
   const gridEl = document.getElementById('grid');
@@ -50,6 +50,9 @@
   function rand(min=0,max=255){ return Math.floor(Math.random()*(max-min+1))+min }
   function rgbToHex(r,g,b){ return '#'+[r,g,b].map(x=>x.toString(16).padStart(2,'0')).join('') }
   function randomBaseColor(){ return {r:rand(0,255), g:rand(0,255), b:rand(0,255)} }
+
+  // Create a color similar to `col` but with controlled variance.
+  // Larger `variance` => more different color. We clamp channels to [0,255].
   function similarColor(col, variance=18){
     return {
       r: Math.max(0, Math.min(255, col.r + Math.floor((Math.random()-0.5)*2*variance))),
@@ -67,6 +70,8 @@
 
   function clearGrid(){ gridEl.innerHTML = ''; tiles = [] }
 
+  // Generate tiles such that most distractors are clearly different (less similar)
+  // but a couple of "hard" distractors remain close to the target to keep the challenge.
   function createTiles(count){
     clearGrid();
     // set grid columns based on count
@@ -78,6 +83,17 @@
     const correctIndex = Math.floor(Math.random()*count);
     targetColor = rgbToHex(base.r, base.g, base.b);
 
+    // Decide which indices will be "hard" (close) distractors.
+    const hardIndices = new Set();
+    if(count > 4){
+      // up to two close distractors (but never the correct index)
+      const hardCount = Math.min(2, Math.max(1, Math.floor(count / 8)) );
+      while(hardIndices.size < hardCount){
+        const idx = Math.floor(Math.random()*count);
+        if(idx !== correctIndex) hardIndices.add(idx);
+      }
+    }
+
     for(let i=0;i<count;i++){
       const tile = document.createElement('button');
       tile.className = 'tile';
@@ -85,28 +101,47 @@
       tile.setAttribute('tabindex', i===0 ? '0' : '-1');
       tile.dataset.index = i;
       tile.dataset.correct = (i===correctIndex) ? '1' : '0';
-      let colObj = (i===correctIndex) ? base : similarColor(base, Math.max(8, 36 - level*2));
+
+      let colObj;
+      if(i===correctIndex){
+        colObj = base;
+      } else if(hardIndices.has(i)){
+        // Hard distractors: small variance -> close to the target, keep the challenge
+        const varLow = Math.max(8, 8 - Math.floor(level/6));
+        const varHigh = Math.max(14, 18 - Math.floor(level/5));
+        const variance = rand(varLow, varHigh);
+        colObj = similarColor(base, variance);
+      } else {
+        // Other distractors: make them noticeably different so overall colours are less similar
+        // Increase difference as level grows to keep game engaging without being indistinguishable
+        const minVar = Math.min(40, 30 + Math.floor(level * 2));
+        const maxVar = Math.min(110, 60 + Math.floor(level * 4));
+        const variance = rand(minVar, maxVar);
+        colObj = similarColor(base, variance);
+      }
+
       const hex = rgbToHex(colObj.r, colObj.g, colObj.b);
       tile.style.backgroundColor = hex;
+
       // Add pattern overlay if patternMode and not exact match
       if(patternMode){
         const pat = document.createElement('span');
         pat.className = 'pattern-overlay';
-        // choose pattern class by index
         pat.classList.add(`pattern-${(i%3)+1}`);
         pat.style.position='absolute'; pat.style.inset=0; pat.style.borderRadius='8px';
         tile.style.position='relative';
         tile.appendChild(pat);
       }
+
       tile.addEventListener('click', onTileClick);
       tile.addEventListener('keydown', onTileKeyDown);
       gridEl.appendChild(tile);
       tiles.push(tile);
     }
+
     // show target swatch as the actual correct colour
     targetSwatch.style.backgroundColor = targetColor;
     targetHex.textContent = targetColor.toUpperCase();
-    // make sure target swatch shows pattern if enabled (target must be plain so players can see)
     targetSwatch.className = 'swatch';
     setHUD();
   }

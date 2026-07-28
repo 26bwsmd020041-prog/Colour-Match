@@ -1,259 +1,226 @@
-// Game State
-const gameState = {
-    score: 0,
-    combo: 0,
-    bestCombo: 0,
-    level: 1,
-    timeLeft: 30,
-    maxTime: 30,
-    gameActive: false,
-    gamePaused: false,
-    tileCount: 4,
-    colors: [],
-    targetColor: null,
-    timerInterval: null,
-};
+// script.js - Colour Match game
+(() => {
+  // DOM
+  const gridEl = document.getElementById('grid');
+  const startBtn = document.getElementById('startBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const scoreEl = document.getElementById('score');
+  const levelEl = document.getElementById('level');
+  const timeEl = document.getElementById('time');
+  const highEl = document.getElementById('highscore');
+  const targetSwatch = document.getElementById('targetSwatch');
+  const targetHex = document.getElementById('targetHex');
+  const patternToggle = document.getElementById('patternMode');
+  const soundToggle = document.getElementById('soundToggle');
+  const resetHigh = document.getElementById('resetHigh');
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlayTitle');
+  const overlayMessage = document.getElementById('overlayMessage');
+  const overlayRestart = document.getElementById('overlayRestart');
+  const overlayClose = document.getElementById('overlayClose');
 
-// Color palette - UNIQUE colors only
-const colorPalette = [
-    '#FF006E', '#FB5607', '#FFBE0B', '#8338EC', '#3A86FF',
-    '#06FFA5', '#FF4365', '#00F5FF', '#00D9FF',
-    '#FFD60A', '#FCA311', '#118AB2', '#073B4C',
-    '#EF476F', '#FFD166', '#06D6A0'
-];
+  // State
+  let score = 0;
+  let level = 1;
+  let tilesCount = 4; // starting tiles
+  let timeLeft = 30;
+  let timerId = null;
+  let targetColor = '';
+  let tiles = [];
+  let patternMode = false;
+  let highScore = parseInt(localStorage.getItem('colour-match-high') || '0', 10);
+  highEl.textContent = highScore;
 
-// DOM Elements
-const scoreEl = document.getElementById('score');
-const comboEl = document.getElementById('combo');
-const levelEl = document.getElementById('level');
-const timeEl = document.getElementById('time');
-const gameBoardEl = document.getElementById('gameBoard');
-const targetColorEl = document.getElementById('targetColor');
-const startModalEl = document.getElementById('startModal');
-const gameOverModalEl = document.getElementById('gameOverModal');
-const pauseModalEl = document.getElementById('pauseModal');
-const startBtn = document.getElementById('startBtn');
-const restartBtn = document.getElementById('restartBtn');
-const pauseBtn = document.getElementById('pauseBtn');
-const resumeBtn = document.getElementById('resumeBtn');
-const quitBtn = document.getElementById('quitBtn');
-const timerFillEl = document.getElementById('timerFill');
+  // Sound (simple beep using WebAudio)
+  const audioCtx = window.AudioContext ? new AudioContext() : null;
+  function beep(freq = 440, duration = 0.06, vol = 0.15){
+    if(!audioCtx || !soundToggle.checked) return;
+    try{
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sine'; o.frequency.value = freq;
+      g.gain.value = vol;
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start();
+      o.stop(audioCtx.currentTime + duration);
+    }catch(e){/* ignore */}
+  }
 
-// Event Listeners
-startBtn.addEventListener('click', startGame);
-restartBtn.addEventListener('click', startGame);
-pauseBtn.addEventListener('click', togglePause);
-resumeBtn.addEventListener('click', togglePause);
-quitBtn.addEventListener('click', quitGame);
+  // Utilities
+  function rand(min=0,max=255){ return Math.floor(Math.random()*(max-min+1))+min }
+  function rgbToHex(r,g,b){ return '#'+[r,g,b].map(x=>x.toString(16).padStart(2,'0')).join('') }
+  function randomBaseColor(){ return {r:rand(0,255), g:rand(0,255), b:rand(0,255)} }
+  function similarColor(col, variance=18){
+    return {
+      r: Math.max(0, Math.min(255, col.r + Math.floor((Math.random()-0.5)*2*variance))),
+      g: Math.max(0, Math.min(255, col.g + Math.floor((Math.random()-0.5)*2*variance))),
+      b: Math.max(0, Math.min(255, col.b + Math.floor((Math.random()-0.5)*2*variance)))
+    }
+  }
 
-function startGame() {
-    // Reset game state
-    gameState.score = 0;
-    gameState.combo = 0;
-    gameState.bestCombo = 0;
-    gameState.level = 1;
-    gameState.timeLeft = 30;
-    gameState.maxTime = 30;
-    gameState.gameActive = true;
-    gameState.gamePaused = false;
-    gameState.tileCount = 4;
+  function setHUD(){
+    scoreEl.textContent = score;
+    levelEl.textContent = level;
+    timeEl.textContent = Math.max(0, Math.ceil(timeLeft));
+    highEl.textContent = highScore;
+  }
 
-    // Hide modals
-    startModalEl.classList.add('hidden');
-    gameOverModalEl.classList.add('hidden');
-    pauseModalEl.classList.add('hidden');
-    pauseBtn.classList.remove('hidden');
+  function clearGrid(){ gridEl.innerHTML = ''; tiles = [] }
 
-    // Generate tiles and target color
-    generateTargetColor();
-    generateTiles();
+  function createTiles(count){
+    clearGrid();
+    // set grid columns based on count
+    const cols = Math.ceil(Math.sqrt(count));
+    gridEl.style.gridTemplateColumns = `repeat(${cols}, auto)`;
 
-    // Start timer
+    const base = randomBaseColor();
+    // pick one index as correct
+    const correctIndex = Math.floor(Math.random()*count);
+    targetColor = rgbToHex(base.r, base.g, base.b);
+
+    for(let i=0;i<count;i++){
+      const tile = document.createElement('button');
+      tile.className = 'tile';
+      tile.setAttribute('role','gridcell');
+      tile.setAttribute('tabindex', i===0 ? '0' : '-1');
+      tile.dataset.index = i;
+      tile.dataset.correct = (i===correctIndex) ? '1' : '0';
+      let colObj = (i===correctIndex) ? base : similarColor(base, Math.max(8, 36 - level*2));
+      const hex = rgbToHex(colObj.r, colObj.g, colObj.b);
+      tile.style.backgroundColor = hex;
+      // Add pattern overlay if patternMode and not exact match
+      if(patternMode){
+        const pat = document.createElement('span');
+        pat.className = 'pattern-overlay';
+        // choose pattern class by index
+        pat.classList.add(`pattern-${(i%3)+1}`);
+        pat.style.position='absolute'; pat.style.inset=0; pat.style.borderRadius='8px';
+        tile.style.position='relative';
+        tile.appendChild(pat);
+      }
+      tile.addEventListener('click', onTileClick);
+      tile.addEventListener('keydown', onTileKeyDown);
+      gridEl.appendChild(tile);
+      tiles.push(tile);
+    }
+    // show target swatch as the actual correct colour
+    targetSwatch.style.backgroundColor = targetColor;
+    targetHex.textContent = targetColor.toUpperCase();
+    // make sure target swatch shows pattern if enabled (target must be plain so players can see)
+    targetSwatch.className = 'swatch';
+    setHUD();
+  }
+
+  function onTileClick(e){
+    const btn = e.currentTarget;
+    const isCorrect = btn.dataset.correct === '1';
+    handleSelection(isCorrect, btn);
+  }
+
+  function onTileKeyDown(e){
+    const idx = Number(e.currentTarget.dataset.index);
+    const cols = Math.ceil(Math.sqrt(tiles.length));
+    let nextIdx = null;
+    if(e.key === 'ArrowRight') nextIdx = (idx + 1) % tiles.length;
+    if(e.key === 'ArrowLeft') nextIdx = (idx - 1 + tiles.length) % tiles.length;
+    if(e.key === 'ArrowDown') nextIdx = (idx + cols) % tiles.length;
+    if(e.key === 'ArrowUp') nextIdx = (idx - cols + tiles.length) % tiles.length;
+    if(nextIdx !== null){
+      e.preventDefault();
+      focusTile(nextIdx);
+    }
+    if(e.key === 'Enter' || e.key === ' '){
+      e.preventDefault();
+      const isCorrect = e.currentTarget.dataset.correct === '1';
+      handleSelection(isCorrect, e.currentTarget);
+    }
+  }
+
+  function focusTile(i){
+    tiles.forEach((t,idx)=> t.setAttribute('tabindex', idx===i ? '0' : '-1'));
+    tiles[i].focus();
+  }
+
+  function handleSelection(isCorrect, btn){
+    if(isCorrect){
+      // reward
+      score += 10 * level;
+      beep(800,0.05,0.08);
+      level += 1;
+      // increase tile count progressively
+      tilesCount = Math.min(36, tilesCount + Math.floor(level/1.5));
+      // add a little time bonus
+      timeLeft += Math.max(2, 4 - Math.floor(level/5));
+      setHUD();
+      // immediate next level generation
+      createTiles(tilesCount);
+    } else {
+      // penalty
+      beep(220,0.08,0.08);
+      timeLeft -= 5;
+      score = Math.max(0, score - 5);
+      setHUD();
+      // flash the wrong tile
+      btn.style.transform = 'scale(0.98)';
+      btn.style.opacity = '0.9';
+      setTimeout(()=>{ btn.style.transform=''; btn.style.opacity=''; },220);
+    }
+    // update high score
+    if(score > highScore){ highScore = score; localStorage.setItem('colour-match-high', String(highScore)); highEl.textContent = highScore }
+  }
+
+  function startTimer(){
+    stopTimer();
+    timerId = setInterval(()=>{
+      timeLeft -= 0.25;
+      if(timeLeft <= 0){ timeLeft = 0; stopTimer(); gameOver(); }
+      setHUD();
+    }, 250);
+  }
+  function stopTimer(){ if(timerId){ clearInterval(timerId); timerId = null } }
+
+  function startGame(){
+    score = 0; level = 1; tilesCount = 4; timeLeft = 30; patternMode = patternToggle.checked;
+    setHUD();
+    createTiles(tilesCount);
     startTimer();
+    startBtn.disabled = true;
+    nextBtn.disabled = false;
+  }
 
-    // Update UI
-    updateUI();
-}
+  function nextLevel(){
+    level += 1; tilesCount = Math.min(36, tilesCount + 2); timeLeft += 6; createTiles(tilesCount); setHUD();
+  }
 
-function generateTiles() {
-    gameBoardEl.innerHTML = '';
-    gameState.colors = [];
+  function gameOver(){
+    stopTimer();
+    overlayTitle.textContent = 'Game Over';
+    overlayMessage.textContent = `You reached level ${level} with a score of ${score}.`;
+    overlay.classList.remove('hidden');
+    overlayRestart.focus();
+    startBtn.disabled = false;
+    nextBtn.disabled = true;
+  }
 
-    // Ensure one tile matches the target
-    const matchIndex = Math.floor(Math.random() * gameState.tileCount);
+  function resetHighScore(){ localStorage.removeItem('colour-match-high'); highScore = 0; highEl.textContent = highScore }
 
-    for (let i = 0; i < gameState.tileCount; i++) {
-        const tile = document.createElement('div');
-        tile.className = 'tile';
+  // Event bindings
+  startBtn.addEventListener('click', ()=>{ // resume audio context on user gesture
+    if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    startGame();
+  });
+  nextBtn.addEventListener('click', ()=> nextLevel());
+  patternToggle.addEventListener('change', ()=>{ patternMode = patternToggle.checked; createTiles(tilesCount) });
+  resetHigh.addEventListener('click', ()=>{ resetHighScore(); beep(400,0.05,0.08); });
+  overlayRestart.addEventListener('click', ()=>{ overlay.classList.add('hidden'); startGame(); });
+  overlayClose.addEventListener('click', ()=>{ overlay.classList.add('hidden'); });
 
-        let color;
-        if (i === matchIndex) {
-            color = gameState.targetColor;
-        } else {
-            // Ensure non-matching colors - get available colors
-            const availableColors = colorPalette.filter(c => c !== gameState.targetColor);
-            color = availableColors[Math.floor(Math.random() * availableColors.length)];
-        }
+  // Global keyboard shortcuts
+  window.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape'){ overlay.classList.add('hidden'); }
+  });
 
-        gameState.colors.push(color);
-        tile.style.backgroundColor = color;
-        tile.dataset.index = i;
-        tile.addEventListener('click', () => handleTileClick(i));
-        tile.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            handleTileClick(i);
-        });
-
-        gameBoardEl.appendChild(tile);
-    }
-}
-
-function generateTargetColor() {
-    gameState.targetColor = colorPalette[Math.floor(Math.random() * colorPalette.length)];
-    targetColorEl.style.backgroundColor = gameState.targetColor;
-}
-
-function handleTileClick(index) {
-    if (!gameState.gameActive || gameState.gamePaused) return;
-
-    const tiles = document.querySelectorAll('.tile');
-    const tile = tiles[index];
-
-    if (gameState.colors[index] === gameState.targetColor) {
-        // Correct match
-        tile.classList.add('correct');
-        gameState.combo++;
-        gameState.bestCombo = Math.max(gameState.bestCombo, gameState.combo);
-
-        // Score calculation with combo multiplier
-        const baseScore = 10;
-        const comboBonus = gameState.combo * 5;
-        const levelMultiplier = gameState.level;
-        const points = (baseScore + comboBonus) * levelMultiplier;
-
-        gameState.score += points;
-
-        // Level up based on score
-        const newLevel = Math.floor(gameState.score / 500) + 1;
-        if (newLevel > gameState.level) {
-            gameState.level = newLevel;
-            increaseDifficulty();
-        }
-
-        // Generate new tiles and target
-        setTimeout(() => {
-            generateTargetColor();
-            generateTiles();
-        }, 300);
-    } else {
-        // Wrong match
-        tile.classList.add('wrong');
-        gameState.combo = 0;
-        gameState.timeLeft -= 5; // Penalty
-
-        if (gameState.timeLeft <= 0) {
-            endGame();
-        }
-    }
-
-    updateUI();
-}
-
-function increaseDifficulty() {
-    // Increase tile count gradually
-    if (gameState.level % 3 === 0 && gameState.tileCount < 16) {
-        gameState.tileCount = Math.min(gameState.tileCount + 1, 16);
-    }
-
-    // Decrease time as difficulty increases
-    gameState.maxTime = Math.max(20, 30 - (gameState.level - 1) * 2);
-    gameState.timeLeft = gameState.maxTime;
-}
-
-function startTimer() {
-    gameState.timerInterval = setInterval(() => {
-        if (!gameState.gamePaused) {
-            gameState.timeLeft--;
-            updateUI();
-
-            if (gameState.timeLeft <= 0) {
-                endGame();
-            }
-        }
-    }, 1000);
-}
-
-function updateUI() {
-    scoreEl.textContent = gameState.score;
-    comboEl.textContent = gameState.combo + 'x';
-    levelEl.textContent = `Level ${gameState.level}`;
-    timeEl.textContent = gameState.timeLeft + 's';
-
-    // Update timer bar
-    const percentage = (gameState.timeLeft / gameState.maxTime) * 100;
-    timerFillEl.style.width = percentage + '%';
-
-    // Color timer bar based on time
-    if (percentage > 50) {
-        timerFillEl.style.background = 'linear-gradient(90deg, #ff006e, #ffbe0b, #00ff88)';
-    } else if (percentage > 25) {
-        timerFillEl.style.background = 'linear-gradient(90deg, #ffbe0b, #ff006e)';
-    } else {
-        timerFillEl.style.background = '#ff006e';
-    }
-}
-
-function updatePauseStats() {
-    document.getElementById('pauseScore').textContent = gameState.score;
-    document.getElementById('pauseLevel').textContent = gameState.level;
-    document.getElementById('pauseCombo').textContent = gameState.combo + 'x';
-}
-
-function togglePause() {
-    if (!gameState.gameActive) return;
-
-    gameState.gamePaused = !gameState.gamePaused;
-
-    if (gameState.gamePaused) {
-        updatePauseStats();
-        pauseModalEl.classList.remove('hidden');
-    } else {
-        pauseModalEl.classList.add('hidden');
-    }
-}
-
-function quitGame() {
-    endGame();
-}
-
-function endGame() {
-    gameState.gameActive = false;
-    clearInterval(gameState.timerInterval);
-    pauseBtn.classList.add('hidden');
-    pauseModalEl.classList.add('hidden');
-
-    // Update final stats
-    document.getElementById('finalScore').textContent = gameState.score;
-    document.getElementById('finalLevel').textContent = gameState.level;
-    document.getElementById('bestCombo').textContent = gameState.bestCombo + 'x';
-
-    // Show game over modal
-    gameOverModalEl.classList.remove('hidden');
-}
-
-// Initialize game
-window.addEventListener('load', () => {
-    startModalEl.classList.remove('hidden');
-});
-
-// Prevent accidental zoom on double tap
-document.addEventListener('touchend', (e) => {
-    if (e.touches.length === 0) {
-        // Reset anything if needed
-    }
-}, false);
-
-// Prevent context menu on long press
-document.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-}, false);
+  // Initialize a simple start screen (show sample tiles)
+  createTiles(4);
+  setHUD();
+})();
